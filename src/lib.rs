@@ -1076,6 +1076,118 @@ fn run_random_greedy_optimization<Ix: IndexType, Node: NodeType>(
     (best_path.unwrap(), best_flops)
 }
 
+/// Find a contraction path using a (randomizable) greedy algorithm.
+///
+/// Parameters
+/// ----------
+/// inputs : Sequence[Sequence[str]]
+///     The indices of each input tensor.
+/// output : Sequence[str]
+///     The indices of the output tensor.
+/// size_dict : dict[str, int]
+///     A dictionary mapping indices to their dimension.
+/// costmod : float, optional
+///     When assessing local greedy scores how much to weight the size of the
+///     tensors removed compared to the size of the tensor added::
+///
+///         score = size_ab / costmod - (size_a + size_b) * costmod
+///
+///     This can be a useful hyper-parameter to tune.
+/// temperature : float, optional
+///     When asessing local greedy scores, how much to randomly perturb the
+///     score. This is implemented as::
+///
+///         score -> sign(score) * log(|score|) - temperature * gumbel()
+///
+///     which implements boltzmann sampling.
+/// max_neighbors : int, optional
+///     If non-zero, skip any index that connects to more than this many
+///     nodes. This is useful to avoid combinatorial explosions when
+///     dealing with essentially batch indices. Default: 16.
+/// seed : int, optional
+///     The seed for the random number generator.
+/// simplify : bool, optional
+///     Whether to perform simplifications before optimizing. These are:
+///
+///     - ignore any indices that appear in all terms
+///     - combine any repeated indices within a single term
+///     - reduce any non-output indices that only appear on a single term
+///     - combine any scalar terms
+///     - combine any tensors with matching indices (hadamard products)
+///
+///     Such simpifications may be required in the general case for the proper
+///     functioning of the core optimization, but may be skipped if the input
+///     indices are already in a simplified form.
+/// use_ssa : bool, optional
+///     Whether to return the contraction path in 'single static assignment'
+///     (SSA) format (i.e. as if each intermediate is appended to the list of
+///     inputs, without removals). This can be quicker and easier to work with
+///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+///
+/// Returns
+/// -------
+/// path : list[list[int]]
+///     The contraction path, given as a sequence of pairs of node indices. It
+///     may also have single term contractions if `simplify=True`.
+pub fn optimize_greedy_rust(
+    inputs: Vec<Vec<char>>,
+    output: Vec<char>,
+    size_dict: Dict<char, f32>,
+    costmod: Option<f32>,
+    temperature: Option<f32>,
+    max_neighbors: Option<usize>,
+    seed: Option<u64>,
+    simplify: bool,
+    use_ssa: bool,
+) -> SSAPath {
+    let n = inputs.len();
+    let num_indices = size_dict.len();
+    let max_nodes = 2 * n;
+
+    let ssa_path = match (num_indices, max_nodes) {
+        (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
+            run_greedy::<u8, u8>(
+                inputs,
+                output,
+                size_dict,
+                costmod,
+                temperature,
+                max_neighbors,
+                seed,
+                simplify,
+            )
+        }
+        (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
+            run_greedy::<u16, u16>(
+                inputs,
+                output,
+                size_dict,
+                costmod,
+                temperature,
+                max_neighbors,
+                seed,
+                simplify,
+            )
+        }
+        _ => run_greedy::<u32, u32>(
+            inputs,
+            output,
+            size_dict,
+            costmod,
+            temperature,
+            max_neighbors,
+            seed,
+            simplify,
+        ),
+    };
+
+    if use_ssa {
+        ssa_path
+    } else {
+        ssa_to_linear(ssa_path, Some(n))
+    }
+}
+
 // --------------------------- PYTHON FUNCTIONS ---------------------------- //
 
 #[pyfunction]
@@ -1246,53 +1358,17 @@ fn optimize_greedy(
     use_ssa: Option<bool>,
 ) -> SSAPath {
     py.detach(|| {
-        let n = inputs.len();
-        let num_indices = size_dict.len();
-        let max_nodes = 2 * n;
-        let simplify = simplify.unwrap_or(true);
-
-        let ssa_path = match (num_indices, max_nodes) {
-            (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
-                run_greedy::<u8, u8>(
-                    inputs,
-                    output,
-                    size_dict,
-                    costmod,
-                    temperature,
-                    max_neighbors,
-                    seed,
-                    simplify,
-                )
-            }
-            (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
-                run_greedy::<u16, u16>(
-                    inputs,
-                    output,
-                    size_dict,
-                    costmod,
-                    temperature,
-                    max_neighbors,
-                    seed,
-                    simplify,
-                )
-            }
-            _ => run_greedy::<u32, u32>(
-                inputs,
-                output,
-                size_dict,
-                costmod,
-                temperature,
-                max_neighbors,
-                seed,
-                simplify,
-            ),
-        };
-
-        if use_ssa.unwrap_or(false) {
-            ssa_path
-        } else {
-            ssa_to_linear(ssa_path, Some(n))
-        }
+        optimize_greedy_rust(
+            inputs,
+            output,
+            size_dict,
+            costmod,
+            temperature,
+            max_neighbors,
+            seed,
+            simplify.unwrap_or(true),
+            use_ssa.unwrap_or(false),
+        )
     })
 }
 
