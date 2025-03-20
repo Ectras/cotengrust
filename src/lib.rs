@@ -1344,6 +1344,121 @@ pub fn optimize_random_greedy_rust(
     }
 }
 
+/// Find an optimal contraction ordering.
+///
+/// Parameters
+/// ----------
+/// inputs : Sequence[Sequence[str]]
+///     The indices of each input tensor.
+/// output : Sequence[str]
+///     The indices of the output tensor.
+/// size_dict : dict[str, int]
+///     The size of each index.
+/// minimize : str, optional
+///     The cost function to minimize. The options are:
+///
+///     - "flops": minimize with respect to total operation count only
+///       (also known as contraction cost)
+///     - "size": minimize with respect to maximum intermediate size only
+///       (also known as contraction width)
+///     - 'max': minimize the single most expensive contraction, i.e. the
+///       asymptotic (in index size) scaling of the contraction
+///     - 'write' : minimize the sum of all tensor sizes, i.e. memory written
+///     - 'combo' or 'combo={factor}` : minimize the sum of
+///       FLOPS + factor * WRITE, with a default factor of 64.
+///     - 'limit' or 'limit={factor}` : minimize the sum of
+///       MAX(FLOPS, alpha * WRITE) for each individual contraction, with a
+///       default factor of 64.
+///
+///     'combo' is generally a good default in term of practical hardware
+///     performance, where both memory bandwidth and compute are limited.
+/// cost_cap : float, optional
+///     The maximum cost of a contraction to initially consider. This acts like
+///     a sieve and is doubled at each iteration until the optimal path can
+///     be found, but supplying an accurate guess can speed up the algorithm.
+/// search_outer : bool, optional
+///     If True, consider outer product contractions. This is much slower but
+///     theoretically might be required to find the true optimal 'flops'
+///     ordering. In practical settings (i.e. with minimize='combo'), outer
+///     products should not be required.
+/// simplify : bool, optional
+///     Whether to perform simplifications before optimizing. These are:
+///
+///     - ignore any indices that appear in all terms
+///     - combine any repeated indices within a single term
+///     - reduce any non-output indices that only appear on a single term
+///     - combine any scalar terms
+///     - combine any tensors with matching indices (hadamard products)
+///
+///     Such simpifications may be required in the general case for the proper
+///     functioning of the core optimization, but may be skipped if the input
+///     indices are already in a simplified form.
+/// use_ssa : bool, optional
+///     Whether to return the contraction path in 'single static assignment'
+///     (SSA) format (i.e. as if each intermediate is appended to the list of
+///     inputs, without removals). This can be quicker and easier to work with
+///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+///
+/// Returns
+/// -------
+/// path : list[list[int]]
+///     The contraction path, given as a sequence of pairs of node indices. It
+///     may also have single term contractions if `simplify=True`.
+pub fn optimize_optimal_rust(
+    inputs: Vec<Vec<char>>,
+    output: Vec<char>,
+    size_dict: Dict<char, f32>,
+    minimize: Option<String>,
+    cost_cap: Option<Score>,
+    search_outer: Option<bool>,
+    simplify: bool,
+    use_ssa: bool,
+) -> SSAPath {
+    let n = inputs.len();
+    let num_indices = size_dict.len();
+    let max_nodes = 2 * n;
+
+    let ssa_path = match (num_indices, max_nodes) {
+        (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
+            run_optimal::<u8, u8>(
+                inputs,
+                output,
+                size_dict,
+                minimize,
+                cost_cap,
+                search_outer,
+                simplify,
+            )
+        }
+        (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
+            run_optimal::<u16, u16>(
+                inputs,
+                output,
+                size_dict,
+                minimize,
+                cost_cap,
+                search_outer,
+                simplify,
+            )
+        }
+        _ => run_optimal::<u32, u32>(
+            inputs,
+            output,
+            size_dict,
+            minimize,
+            cost_cap,
+            search_outer,
+            simplify,
+        ),
+    };
+
+    if use_ssa {
+        ssa_path
+    } else {
+        ssa_to_linear(ssa_path, Some(n))
+    }
+}
+
 // --------------------------- PYTHON FUNCTIONS ---------------------------- //
 
 #[pyfunction]
@@ -1694,50 +1809,16 @@ fn optimize_optimal(
     use_ssa: Option<bool>,
 ) -> SSAPath {
     py.detach(|| {
-        let n = inputs.len();
-        let num_indices = size_dict.len();
-        let max_nodes = 2 * n;
-        let simplify = simplify.unwrap_or(true);
-
-        let ssa_path = match (num_indices, max_nodes) {
-            (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
-                run_optimal::<u8, u8>(
-                    inputs,
-                    output,
-                    size_dict,
-                    minimize,
-                    cost_cap,
-                    search_outer,
-                    simplify,
-                )
-            }
-            (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
-                run_optimal::<u16, u16>(
-                    inputs,
-                    output,
-                    size_dict,
-                    minimize,
-                    cost_cap,
-                    search_outer,
-                    simplify,
-                )
-            }
-            _ => run_optimal::<u32, u32>(
-                inputs,
-                output,
-                size_dict,
-                minimize,
-                cost_cap,
-                search_outer,
-                simplify,
-            ),
-        };
-
-        if use_ssa.unwrap_or(false) {
-            ssa_path
-        } else {
-            ssa_to_linear(ssa_path, Some(n))
-        }
+        optimize_optimal_rust(
+            inputs,
+            output,
+            size_dict,
+            minimize,
+            cost_cap,
+            search_outer,
+            simplify.unwrap_or(true),
+            use_ssa.unwrap_or(false),
+        )
     })
 }
 
