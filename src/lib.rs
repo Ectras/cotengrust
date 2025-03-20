@@ -888,6 +888,70 @@ impl ContractionProcessor {
     }
 }
 
+/// Find a contraction path using a (randomizable) greedy algorithm.
+///
+/// # Parameters
+/// - `inputs`: The indices of each input tensor.
+/// - `output`: The indices of the output tensor.
+/// - `size_dict`: A dictionary mapping indices to their dimension.
+/// - `costmod`: When assessing local greedy scores how much to weight the size of the
+///     tensors removed compared to the size of the tensor added:
+///
+///         score = size_ab / costmod - (size_a + size_b) * costmod
+///
+///     This can be a useful hyper-parameter to tune.
+/// - `temperature`: When asessing local greedy scores, how much to randomly perturb the
+///     score. This is implemented as:
+///
+///         score -> sign(score) * log(|score|) - temperature * gumbel()
+///
+///     which implements boltzmann sampling.
+/// - `simplify`: Whether to perform simplifications before optimizing. These are:
+///
+///     - ignore any indices that appear in all terms
+///     - combine any repeated indices within a single term
+///     - reduce any non-output indices that only appear on a single term
+///     - combine any scalar terms
+///     - combine any tensors with matching indices (hadamard products)
+///
+///     Such simpifications may be required in the general case for the proper
+///     functioning of the core optimization, but may be skipped if the input
+///     indices are already in a simplified form.
+/// - `use_ssa`: Whether to return the contraction path in 'single static assignment'
+///     (SSA) format (i.e. as if each intermediate is appended to the list of
+///     inputs, without removals). This can be quicker and easier to work with
+///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+///
+/// # Returns
+/// The contraction path, given as a sequence of pairs of node indices. It
+///     may also have single term contractions if `simplify=True`.
+pub fn optimize_greedy_rust(
+    inputs: Vec<Vec<char>>,
+    output: Vec<char>,
+    size_dict: Dict<char, f32>,
+    costmod: Option<f32>,
+    temperature: Option<f32>,
+    seed: Option<u64>,
+    simplify: bool,
+    use_ssa: bool,
+) -> Vec<Vec<Node>> {
+    let n = inputs.len();
+    let mut cp = ContractionProcessor::new(inputs, output, size_dict, false);
+    if simplify {
+        // perform simplifications
+        cp.simplify();
+    }
+    // greedily contract each connected subgraph
+    cp.optimize_greedy(costmod, temperature, seed);
+    // optimize any remaining disconnected terms
+    cp.optimize_remaining_by_size();
+    if use_ssa {
+        cp.ssa_path
+    } else {
+        ssa_to_linear(cp.ssa_path, Some(n))
+    }
+}
+
 // --------------------------- PYTHON FUNCTIONS ---------------------------- //
 
 #[pyfunction]
@@ -1028,21 +1092,16 @@ fn optimize_greedy(
     use_ssa: Option<bool>,
 ) -> Vec<Vec<Node>> {
     py.allow_threads(|| {
-        let n = inputs.len();
-        let mut cp = ContractionProcessor::new(inputs, output, size_dict, false);
-        if simplify.unwrap_or(true) {
-            // perform simplifications
-            cp.simplify();
-        }
-        // greedily contract each connected subgraph
-        cp.optimize_greedy(costmod, temperature, seed);
-        // optimize any remaining disconnected terms
-        cp.optimize_remaining_by_size();
-        if use_ssa.unwrap_or(false) {
-            cp.ssa_path
-        } else {
-            ssa_to_linear(cp.ssa_path, Some(n))
-        }
+        optimize_greedy_rust(
+            inputs,
+            output,
+            size_dict,
+            costmod,
+            temperature,
+            seed,
+            simplify.unwrap_or(true),
+            use_ssa.unwrap_or(false),
+        )
     })
 }
 
