@@ -1188,6 +1188,162 @@ pub fn optimize_greedy_rust(
     }
 }
 
+/// Perform a batch of random greedy optimizations, simulteneously tracking
+/// the best contraction path in terms of flops, so as to avoid constructing a
+/// separate contraction tree.
+///
+/// Parameters
+/// ----------
+/// inputs : tuple[tuple[str]]
+///     The indices of each input tensor.
+/// output : tuple[str]
+///     The indices of the output tensor.
+/// size_dict : dict[str, int]
+///     A dictionary mapping indices to their dimension.
+/// ntrials : int, optional
+///     The number of random greedy trials to perform. The default is 1.
+/// costmod : (float, float), optional
+///     When assessing local greedy scores how much to weight the size of the
+///     tensors removed compared to the size of the tensor added::
+///
+///         score = size_ab / costmod - (size_a + size_b) * costmod
+///
+///     It is sampled uniformly from the given range.
+/// temperature : (float, float), optional
+///     When asessing local greedy scores, how much to randomly perturb the
+///     score. This is implemented as::
+///
+///         score -> sign(score) * log(|score|) - temperature * gumbel()
+///
+///     which implements boltzmann sampling. It is sampled log-uniformly from
+///     the given range.
+/// max_neighbors : int, optional
+///    If non-zero, skip any index that connects to more than this many
+///    nodes. This is useful to avoid combinatorial explosions when
+///    dealing with essentially batch indices. Default: 16.
+/// seed : int, optional
+///     The seed for the random number generator.
+/// simplify : bool, optional
+///     Whether to perform simplifications before optimizing. These are:
+///
+///     - ignore any indices that appear in all terms
+///     - combine any repeated indices within a single term
+///     - reduce any non-output indices that only appear on a single term
+///     - combine any scalar terms
+///     - combine any tensors with matching indices (hadamard products)
+///
+///     Such simpifications may be required in the general case for the proper
+///     functioning of the core optimization, but may be skipped if the input
+///     indices are already in a simplified form.
+/// use_ssa : bool, optional
+///     Whether to return the contraction path in 'single static assignment'
+///     (SSA) format (i.e. as if each intermediate is appended to the list of
+///     inputs, without removals). This can be quicker and easier to work with
+///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+///
+/// Returns
+/// -------
+/// path : list[list[int]]
+///     The best contraction path, given as a sequence of pairs of node
+///     indices.
+/// flops : float
+///     The flops (/ contraction cost / number of multiplications), of the best
+///     contraction path, given log10.
+pub fn optimize_random_greedy_rust(
+    inputs: Vec<Vec<char>>,
+    output: Vec<char>,
+    size_dict: Dict<char, f32>,
+    ntrials: usize,
+    costmod: Option<(f32, f32)>,
+    temperature: Option<(f32, f32)>,
+    max_neighbors: Option<usize>,
+    seed: Option<u64>,
+    simplify: bool,
+    use_ssa: bool,
+) -> (SSAPath, Score) {
+    let (costmod_min, costmod_max) = costmod.unwrap_or((0.1, 4.0));
+    let costmod_diff = (costmod_max - costmod_min).abs();
+    let is_const_costmod = costmod_diff < Score::EPSILON;
+
+    let (temp_min, temp_max) = temperature.unwrap_or((0.001, 1.0));
+    let log_temp_min = Score::ln(temp_min);
+    let log_temp_max = Score::ln(temp_max);
+    let log_temp_diff = (log_temp_max - log_temp_min).abs();
+    let is_const_temp = log_temp_diff < Score::EPSILON;
+
+    let mut rng = match seed {
+        Some(seed) => rand::rngs::StdRng::seed_from_u64(seed),
+        None => rand::rngs::StdRng::from_os_rng(),
+    };
+    let seeds = (0..ntrials).map(|_| rng.random()).collect::<Vec<u64>>();
+
+    let n: usize = inputs.len();
+    let num_indices = size_dict.len();
+    let max_nodes = 2 * n;
+
+    // Dispatch based on number of indices and nodes
+    let (ssa_path, flops) = match (num_indices, max_nodes) {
+        (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
+            run_random_greedy_optimization::<u8, u8>(
+                inputs,
+                output,
+                size_dict,
+                simplify,
+                &seeds,
+                costmod_min,
+                costmod_diff,
+                is_const_costmod,
+                temp_min,
+                log_temp_min,
+                log_temp_diff,
+                is_const_temp,
+                max_neighbors,
+                &mut rng,
+            )
+        }
+        (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
+            run_random_greedy_optimization::<u16, u16>(
+                inputs,
+                output,
+                size_dict,
+                simplify,
+                &seeds,
+                costmod_min,
+                costmod_diff,
+                is_const_costmod,
+                temp_min,
+                log_temp_min,
+                log_temp_diff,
+                is_const_temp,
+                max_neighbors,
+                &mut rng,
+            )
+        }
+        _ => run_random_greedy_optimization::<u32, u32>(
+            inputs,
+            output,
+            size_dict,
+            simplify,
+            &seeds,
+            costmod_min,
+            costmod_diff,
+            is_const_costmod,
+            temp_min,
+            log_temp_min,
+            log_temp_diff,
+            is_const_temp,
+            max_neighbors,
+            &mut rng,
+        ),
+    };
+
+    if use_ssa {
+        (ssa_path, flops)
+    } else {
+        (ssa_to_linear(ssa_path, Some(n)), flops)
+    }
+}
+
 // --------------------------- PYTHON FUNCTIONS ---------------------------- //
 
 #[pyfunction]
@@ -1449,87 +1605,18 @@ fn optimize_random_greedy_track_flops(
     use_ssa: Option<bool>,
 ) -> (SSAPath, Score) {
     py.detach(|| {
-        let (costmod_min, costmod_max) = costmod.unwrap_or((0.1, 4.0));
-        let costmod_diff = (costmod_max - costmod_min).abs();
-        let is_const_costmod = costmod_diff < Score::EPSILON;
-
-        let (temp_min, temp_max) = temperature.unwrap_or((0.001, 1.0));
-        let log_temp_min = Score::ln(temp_min);
-        let log_temp_max = Score::ln(temp_max);
-        let log_temp_diff = (log_temp_max - log_temp_min).abs();
-        let is_const_temp = log_temp_diff < Score::EPSILON;
-
-        let mut rng = match seed {
-            Some(seed) => rand::rngs::StdRng::seed_from_u64(seed),
-            None => rand::rngs::StdRng::from_os_rng(),
-        };
-        let seeds = (0..ntrials).map(|_| rng.random()).collect::<Vec<u64>>();
-
-        let n: usize = inputs.len();
-        let num_indices = size_dict.len();
-        let max_nodes = 2 * n;
-
-        // Dispatch based on number of indices and nodes
-        let (ssa_path, flops) = match (num_indices, max_nodes) {
-            (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
-                run_random_greedy_optimization::<u8, u8>(
-                    inputs,
-                    output,
-                    size_dict,
-                    simplify.unwrap_or(true),
-                    &seeds,
-                    costmod_min,
-                    costmod_diff,
-                    is_const_costmod,
-                    temp_min,
-                    log_temp_min,
-                    log_temp_diff,
-                    is_const_temp,
-                    max_neighbors,
-                    &mut rng,
-                )
-            }
-            (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
-                run_random_greedy_optimization::<u16, u16>(
-                    inputs,
-                    output,
-                    size_dict,
-                    simplify.unwrap_or(true),
-                    &seeds,
-                    costmod_min,
-                    costmod_diff,
-                    is_const_costmod,
-                    temp_min,
-                    log_temp_min,
-                    log_temp_diff,
-                    is_const_temp,
-                    max_neighbors,
-                    &mut rng,
-                )
-            }
-            _ => run_random_greedy_optimization::<u32, u32>(
-                inputs,
-                output,
-                size_dict,
-                simplify.unwrap_or(true),
-                &seeds,
-                costmod_min,
-                costmod_diff,
-                is_const_costmod,
-                temp_min,
-                log_temp_min,
-                log_temp_diff,
-                is_const_temp,
-                max_neighbors,
-                &mut rng,
-            ),
-        };
-
-        if use_ssa.unwrap_or(false) {
-            (ssa_path, flops)
-        } else {
-            (ssa_to_linear(ssa_path, Some(n)), flops)
-        }
+        optimize_random_greedy_rust(
+            inputs,
+            output,
+            size_dict,
+            ntrials,
+            costmod,
+            temperature,
+            max_neighbors,
+            seed,
+            simplify.unwrap_or(true),
+            use_ssa.unwrap_or(false),
+        )
     })
 }
 
