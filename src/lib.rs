@@ -952,6 +952,132 @@ pub fn optimize_greedy_rust(
     }
 }
 
+/// Perform a batch of random greedy optimizations, simulteneously tracking
+/// the best contraction path in terms of flops, so as to avoid constructing a
+/// separate contraction tree.
+///
+/// # Parameters
+/// - `inputs`: The indices of each input tensor.
+/// - `output`: The indices of the output tensor.
+/// - `size_dict`: A dictionary mapping indices to their dimension.
+/// - `ntrials`: The number of random greedy trials to perform.
+/// - `costmod`: When assessing local greedy scores how much to weight the size of the
+///     tensors removed compared to the size of the tensor added:
+///
+///         score = size_ab / costmod - (size_a + size_b) * costmod
+///
+///     It is sampled uniformly from the given range.
+/// - `temperature`: (float, float), optional
+///     When asessing local greedy scores, how much to randomly perturb the
+///     score. This is implemented as:
+///
+///         score -> sign(score) * log(|score|) - temperature * gumbel()
+///
+///     which implements boltzmann sampling. It is sampled log-uniformly from
+///     the given range.
+/// - `seed`: The seed for the random number generator.
+/// - `simplify`: Whether to perform simplifications before optimizing. These are:
+///
+///     - ignore any indices that appear in all terms
+///     - combine any repeated indices within a single term
+///     - reduce any non-output indices that only appear on a single term
+///     - combine any scalar terms
+///     - combine any tensors with matching indices (hadamard products)
+///
+///     Such simpifications may be required in the general case for the proper
+///     functioning of the core optimization, but may be skipped if the input
+///     indices are already in a simplified form.
+/// - `use_ssa`: Whether to return the contraction path in 'single static assignment'
+///     (SSA) format (i.e. as if each intermediate is appended to the list of
+///     inputs, without removals). This can be quicker and easier to work with
+///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+///
+/// # Returns
+/// - `path`: The best contraction path, given as a sequence of pairs of node
+///     indices.
+/// - `flops`: The flops (/ contraction cost / number of multiplications), of the best
+///     contraction path, given log10.
+pub fn optimize_random_greedy_rust(
+    inputs: Vec<Vec<char>>,
+    output: Vec<char>,
+    size_dict: Dict<char, f32>,
+    ntrials: usize,
+    costmod: Option<(f32, f32)>,
+    temperature: Option<(f32, f32)>,
+    seed: Option<u64>,
+    simplify: bool,
+    use_ssa: bool,
+) -> (Vec<Vec<Node>>, Score) {
+    let (costmod_min, costmod_max) = costmod.unwrap_or((0.1, 4.0));
+    let costmod_diff = (costmod_max - costmod_min).abs();
+    let is_const_costmod = costmod_diff < Score::EPSILON;
+
+    let (temp_min, temp_max) = temperature.unwrap_or((0.001, 1.0));
+    let log_temp_min = Score::ln(temp_min);
+    let log_temp_max = Score::ln(temp_max);
+    let log_temp_diff = (log_temp_max - log_temp_min).abs();
+    let is_const_temp = log_temp_diff < Score::EPSILON;
+
+    let mut rng = match seed {
+        Some(seed) => rand::rngs::StdRng::seed_from_u64(seed),
+        None => rand::rngs::StdRng::from_os_rng(),
+    };
+    let seeds = (0..ntrials).map(|_| rng.random()).collect::<Vec<u64>>();
+
+    let n: usize = inputs.len();
+    // construct processor and perform simplifications once
+    let mut cp0 = ContractionProcessor::new(inputs, output, size_dict, true);
+    if simplify {
+        cp0.simplify();
+    }
+
+    let mut best_path = None;
+    let mut best_flops = f32::INFINITY;
+
+    for seed in seeds {
+        let mut cp = cp0.clone();
+
+        // uniform sample for costmod
+        let costmod = if is_const_costmod {
+            costmod_min
+        } else {
+            costmod_min + rng.random::<f32>() * costmod_diff
+        };
+
+        // log-uniform sample for temperature
+        let temperature = if is_const_temp {
+            temp_min
+        } else {
+            f32::exp(log_temp_min + rng.random::<f32>() * log_temp_diff)
+        };
+
+        // greedily contract each connected subgraph
+        let success = cp.optimize_greedy(Some(costmod), Some(temperature), Some(seed));
+
+        if !success {
+            continue;
+        }
+
+        // optimize any remaining disconnected terms
+        cp.optimize_remaining_by_size();
+
+        if cp.flops < best_flops {
+            best_path = Some(cp.ssa_path);
+            best_flops = cp.flops;
+            cp0.flops_limit = cp.flops;
+        }
+    }
+
+    // convert to base 10 for easier comparison
+    best_flops *= f32::consts::LOG10_E;
+
+    if use_ssa {
+        (best_path.unwrap(), best_flops)
+    } else {
+        (ssa_to_linear(best_path.unwrap(), Some(n)), best_flops)
+    }
+}
+
 // --------------------------- PYTHON FUNCTIONS ---------------------------- //
 
 #[pyfunction]
@@ -1177,74 +1303,17 @@ fn optimize_random_greedy_track_flops(
     use_ssa: Option<bool>,
 ) -> (Vec<Vec<Node>>, Score) {
     py.allow_threads(|| {
-        let (costmod_min, costmod_max) = costmod.unwrap_or((0.1, 4.0));
-        let costmod_diff = (costmod_max - costmod_min).abs();
-        let is_const_costmod = costmod_diff < Score::EPSILON;
-
-        let (temp_min, temp_max) = temperature.unwrap_or((0.001, 1.0));
-        let log_temp_min = Score::ln(temp_min);
-        let log_temp_max = Score::ln(temp_max);
-        let log_temp_diff = (log_temp_max - log_temp_min).abs();
-        let is_const_temp = log_temp_diff < Score::EPSILON;
-
-        let mut rng = match seed {
-            Some(seed) => rand::rngs::StdRng::seed_from_u64(seed),
-            None => rand::rngs::StdRng::from_os_rng(),
-        };
-        let seeds = (0..ntrials).map(|_| rng.random()).collect::<Vec<u64>>();
-
-        let n: usize = inputs.len();
-        // construct processor and perform simplifications once
-        let mut cp0 = ContractionProcessor::new(inputs, output, size_dict, true);
-        if simplify.unwrap_or(true) {
-            cp0.simplify();
-        }
-
-        let mut best_path = None;
-        let mut best_flops = f32::INFINITY;
-
-        for seed in seeds {
-            let mut cp = cp0.clone();
-
-            // uniform sample for costmod
-            let costmod = if is_const_costmod {
-                costmod_min
-            } else {
-                costmod_min + rng.random::<f32>() * costmod_diff
-            };
-
-            // log-uniform sample for temperature
-            let temperature = if is_const_temp {
-                temp_min
-            } else {
-                f32::exp(log_temp_min + rng.random::<f32>() * log_temp_diff)
-            };
-
-            // greedily contract each connected subgraph
-            let success = cp.optimize_greedy(Some(costmod), Some(temperature), Some(seed));
-
-            if !success {
-                continue;
-            }
-
-            // optimize any remaining disconnected terms
-            cp.optimize_remaining_by_size();
-
-            if cp.flops < best_flops {
-                best_path = Some(cp.ssa_path);
-                best_flops = cp.flops;
-                cp0.flops_limit = cp.flops;
-            }
-        }
-
-        // convert to base 10 for easier comparison
-        best_flops *= f32::consts::LOG10_E;
-
-        if use_ssa.unwrap_or(false) {
-            (best_path.unwrap(), best_flops)
-        } else {
-            (ssa_to_linear(best_path.unwrap(), Some(n)), best_flops)
-        }
+        optimize_random_greedy_rust(
+            inputs,
+            output,
+            size_dict,
+            ntrials,
+            costmod,
+            temperature,
+            seed,
+            simplify.unwrap_or(true),
+            use_ssa.unwrap_or(false),
+        )
     })
 }
 
