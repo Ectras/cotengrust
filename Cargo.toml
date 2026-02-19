@@ -12,7 +12,6 @@ name = "cotengrust"
 bit-set = "0.8.0"
 num-traits = "0.2.16"
 ordered-float = "5.1.0"
-pyo3 = "0.28.0"
 rand = "0.9.1"
 rustc-hash = "2.1.1"
 

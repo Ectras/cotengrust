@@ -1,7 +1,6 @@
 use bit_set::BitSet;
 use num_traits::{AsPrimitive, Bounded, PrimInt};
 use ordered_float::OrderedFloat;
-use pyo3::prelude::*;
 use rand::Rng;
 use rand::SeedableRng;
 use rustc_hash::FxHashMap;
@@ -955,26 +954,26 @@ impl<Ix: IndexType, Node: NodeType> ContractionProcessor<Ix, Node> {
 
 // ----------------------- dispatch-able functions ------------------------- //
 
-fn run_find_subgraphs<Ix: IndexType, Node: NodeType>(
-    inputs: Vec<Vec<char>>,
-    output: Vec<char>,
-    size_dict: Dict<char, f32>,
-) -> SSAPath {
-    let cp: ContractionProcessor<Ix, Node> =
-        ContractionProcessor::new(inputs, output, size_dict, false);
-    cp.subgraphs()
-}
+// fn run_find_subgraphs<Ix: IndexType, Node: NodeType>(
+//     inputs: Vec<Vec<char>>,
+//     output: Vec<char>,
+//     size_dict: Dict<char, f32>,
+// ) -> SSAPath {
+//     let cp: ContractionProcessor<Ix, Node> =
+//         ContractionProcessor::new(inputs, output, size_dict, false);
+//     cp.subgraphs()
+// }
 
-fn run_simplify<Ix: IndexType, Node: NodeType>(
-    inputs: Vec<Vec<char>>,
-    output: Vec<char>,
-    size_dict: Dict<char, f32>,
-) -> SSAPath {
-    let mut cp: ContractionProcessor<Ix, Node> =
-        ContractionProcessor::new(inputs, output, size_dict, false);
-    cp.simplify();
-    cp.ssa_path
-}
+// fn run_simplify<Ix: IndexType, Node: NodeType>(
+//     inputs: Vec<Vec<char>>,
+//     output: Vec<char>,
+//     size_dict: Dict<char, f32>,
+// ) -> SSAPath {
+//     let mut cp: ContractionProcessor<Ix, Node> =
+//         ContractionProcessor::new(inputs, output, size_dict, false);
+//     cp.simplify();
+//     cp.ssa_path
+// }
 
 fn run_greedy<Ix: IndexType, Node: NodeType>(
     inputs: Vec<Vec<char>>,
@@ -1485,355 +1484,355 @@ pub fn ssa_to_linear_rust(ssa_path: SSAPath, n: Option<usize>) -> SSAPath {
     path
 }
 
-// --------------------------- PYTHON FUNCTIONS ---------------------------- //
+// // --------------------------- PYTHON FUNCTIONS ---------------------------- //
 
-#[pyfunction]
-#[pyo3(signature = (ssa_path, n=None))]
-fn ssa_to_linear(ssa_path: SSAPath, n: Option<usize>) -> SSAPath {
-    ssa_to_linear_rust(ssa_path, n)
-}
+// #[pyfunction]
+// #[pyo3(signature = (ssa_path, n=None))]
+// fn ssa_to_linear(ssa_path: SSAPath, n: Option<usize>) -> SSAPath {
+//     ssa_to_linear_rust(ssa_path, n)
+// }
 
-#[pyfunction]
-fn find_subgraphs(
-    inputs: Vec<Vec<char>>,
-    output: Vec<char>,
-    size_dict: Dict<char, f32>,
-) -> SSAPath {
-    let num_indices = size_dict.len();
-    let max_nodes = 2 * inputs.len();
+// #[pyfunction]
+// fn find_subgraphs(
+//     inputs: Vec<Vec<char>>,
+//     output: Vec<char>,
+//     size_dict: Dict<char, f32>,
+// ) -> SSAPath {
+//     let num_indices = size_dict.len();
+//     let max_nodes = 2 * inputs.len();
 
-    let subgraphs = match (num_indices, max_nodes) {
-        (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
-            run_find_subgraphs::<u8, u8>(inputs, output, size_dict)
-        }
-        (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
-            run_find_subgraphs::<u16, u16>(inputs, output, size_dict)
-        }
-        _ => run_find_subgraphs::<u32, u32>(inputs, output, size_dict),
-    };
+//     let subgraphs = match (num_indices, max_nodes) {
+//         (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
+//             run_find_subgraphs::<u8, u8>(inputs, output, size_dict)
+//         }
+//         (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
+//             run_find_subgraphs::<u16, u16>(inputs, output, size_dict)
+//         }
+//         _ => run_find_subgraphs::<u32, u32>(inputs, output, size_dict),
+//     };
 
-    subgraphs
-}
+//     subgraphs
+// }
 
-#[pyfunction]
-#[pyo3(signature = (inputs, output, size_dict, use_ssa=None))]
-/// Find the (partial) contracton path for simplifiactions only.
-///
-/// Parameters
-/// ----------
-/// inputs : Sequence[Sequence[str]]
-///     The indices of each input tensor.
-/// output : Sequence[str]
-///     The indices of the output tensor.
-/// size_dict : dict[str, int]
-///     A dictionary mapping indices to their dimension.
-/// use_ssa : bool, optional
-///     Whether to return the contraction path in 'single static assignment'
-///     (SSA) format (i.e. as if each intermediate is appended to the list of
-///     inputs, without removals). This can be quicker and easier to work with
-///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
-///
-/// Returns
-/// -------
-/// path : list[list[int]]
-///     The contraction path, given as a sequence of pairs of node indices. It
-///     may also have single term contractions.
-fn optimize_simplify(
-    inputs: Vec<Vec<char>>,
-    output: Vec<char>,
-    size_dict: Dict<char, f32>,
-    use_ssa: Option<bool>,
-) -> SSAPath {
-    let n = inputs.len();
-    let num_indices = size_dict.len();
-    let max_nodes = 2 * n;
+// #[pyfunction]
+// #[pyo3(signature = (inputs, output, size_dict, use_ssa=None))]
+// /// Find the (partial) contracton path for simplifiactions only.
+// ///
+// /// Parameters
+// /// ----------
+// /// inputs : Sequence[Sequence[str]]
+// ///     The indices of each input tensor.
+// /// output : Sequence[str]
+// ///     The indices of the output tensor.
+// /// size_dict : dict[str, int]
+// ///     A dictionary mapping indices to their dimension.
+// /// use_ssa : bool, optional
+// ///     Whether to return the contraction path in 'single static assignment'
+// ///     (SSA) format (i.e. as if each intermediate is appended to the list of
+// ///     inputs, without removals). This can be quicker and easier to work with
+// ///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+// ///
+// /// Returns
+// /// -------
+// /// path : list[list[int]]
+// ///     The contraction path, given as a sequence of pairs of node indices. It
+// ///     may also have single term contractions.
+// fn optimize_simplify(
+//     inputs: Vec<Vec<char>>,
+//     output: Vec<char>,
+//     size_dict: Dict<char, f32>,
+//     use_ssa: Option<bool>,
+// ) -> SSAPath {
+//     let n = inputs.len();
+//     let num_indices = size_dict.len();
+//     let max_nodes = 2 * n;
 
-    let ssa_path = match (num_indices, max_nodes) {
-        (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
-            run_simplify::<u8, u8>(inputs, output, size_dict)
-        }
-        (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
-            run_simplify::<u16, u16>(inputs, output, size_dict)
-        }
-        _ => run_simplify::<u32, u32>(inputs, output, size_dict),
-    };
+//     let ssa_path = match (num_indices, max_nodes) {
+//         (idx, nodes) if idx <= u8::MAX as usize && nodes <= u8::MAX as usize => {
+//             run_simplify::<u8, u8>(inputs, output, size_dict)
+//         }
+//         (idx, nodes) if idx <= u16::MAX as usize && nodes <= u16::MAX as usize => {
+//             run_simplify::<u16, u16>(inputs, output, size_dict)
+//         }
+//         _ => run_simplify::<u32, u32>(inputs, output, size_dict),
+//     };
 
-    if use_ssa.unwrap_or(false) {
-        ssa_path
-    } else {
-        ssa_to_linear(ssa_path, Some(n))
-    }
-}
+//     if use_ssa.unwrap_or(false) {
+//         ssa_path
+//     } else {
+//         ssa_to_linear(ssa_path, Some(n))
+//     }
+// }
 
-#[pyfunction]
-#[pyo3(signature = (inputs, output, size_dict, costmod=None, temperature=None, max_neighbors=None, seed=None, simplify=None, use_ssa=None))]
-/// Find a contraction path using a (randomizable) greedy algorithm.
-///
-/// Parameters
-/// ----------
-/// inputs : Sequence[Sequence[str]]
-///     The indices of each input tensor.
-/// output : Sequence[str]
-///     The indices of the output tensor.
-/// size_dict : dict[str, int]
-///     A dictionary mapping indices to their dimension.
-/// costmod : float, optional
-///     When assessing local greedy scores how much to weight the size of the
-///     tensors removed compared to the size of the tensor added::
-///
-///         score = size_ab / costmod - (size_a + size_b) * costmod
-///
-///     This can be a useful hyper-parameter to tune.
-/// temperature : float, optional
-///     When asessing local greedy scores, how much to randomly perturb the
-///     score. This is implemented as::
-///
-///         score -> sign(score) * log(|score|) - temperature * gumbel()
-///
-///     which implements boltzmann sampling.
-/// max_neighbors : int, optional
-///     If non-zero, skip any index that connects to more than this many
-///     nodes. This is useful to avoid combinatorial explosions when
-///     dealing with essentially batch indices. Default: 16.
-/// seed : int, optional
-///     The seed for the random number generator.
-/// simplify : bool, optional
-///     Whether to perform simplifications before optimizing. These are:
-///
-///     - ignore any indices that appear in all terms
-///     - combine any repeated indices within a single term
-///     - reduce any non-output indices that only appear on a single term
-///     - combine any scalar terms
-///     - combine any tensors with matching indices (hadamard products)
-///
-///     Such simpifications may be required in the general case for the proper
-///     functioning of the core optimization, but may be skipped if the input
-///     indices are already in a simplified form.
-/// use_ssa : bool, optional
-///     Whether to return the contraction path in 'single static assignment'
-///     (SSA) format (i.e. as if each intermediate is appended to the list of
-///     inputs, without removals). This can be quicker and easier to work with
-///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
-///
-/// Returns
-/// -------
-/// path : list[list[int]]
-///     The contraction path, given as a sequence of pairs of node indices. It
-///     may also have single term contractions if `simplify=True`.
-fn optimize_greedy(
-    py: Python,
-    inputs: Vec<Vec<char>>,
-    output: Vec<char>,
-    size_dict: Dict<char, f32>,
-    costmod: Option<f32>,
-    temperature: Option<f32>,
-    max_neighbors: Option<usize>,
-    seed: Option<u64>,
-    simplify: Option<bool>,
-    use_ssa: Option<bool>,
-) -> SSAPath {
-    py.detach(|| {
-        optimize_greedy_rust(
-            inputs,
-            output,
-            size_dict,
-            costmod,
-            temperature,
-            max_neighbors,
-            seed,
-            simplify.unwrap_or(true),
-            use_ssa.unwrap_or(false),
-        )
-    })
-}
+// #[pyfunction]
+// #[pyo3(signature = (inputs, output, size_dict, costmod=None, temperature=None, max_neighbors=None, seed=None, simplify=None, use_ssa=None))]
+// /// Find a contraction path using a (randomizable) greedy algorithm.
+// ///
+// /// Parameters
+// /// ----------
+// /// inputs : Sequence[Sequence[str]]
+// ///     The indices of each input tensor.
+// /// output : Sequence[str]
+// ///     The indices of the output tensor.
+// /// size_dict : dict[str, int]
+// ///     A dictionary mapping indices to their dimension.
+// /// costmod : float, optional
+// ///     When assessing local greedy scores how much to weight the size of the
+// ///     tensors removed compared to the size of the tensor added::
+// ///
+// ///         score = size_ab / costmod - (size_a + size_b) * costmod
+// ///
+// ///     This can be a useful hyper-parameter to tune.
+// /// temperature : float, optional
+// ///     When asessing local greedy scores, how much to randomly perturb the
+// ///     score. This is implemented as::
+// ///
+// ///         score -> sign(score) * log(|score|) - temperature * gumbel()
+// ///
+// ///     which implements boltzmann sampling.
+// /// max_neighbors : int, optional
+// ///     If non-zero, skip any index that connects to more than this many
+// ///     nodes. This is useful to avoid combinatorial explosions when
+// ///     dealing with essentially batch indices. Default: 16.
+// /// seed : int, optional
+// ///     The seed for the random number generator.
+// /// simplify : bool, optional
+// ///     Whether to perform simplifications before optimizing. These are:
+// ///
+// ///     - ignore any indices that appear in all terms
+// ///     - combine any repeated indices within a single term
+// ///     - reduce any non-output indices that only appear on a single term
+// ///     - combine any scalar terms
+// ///     - combine any tensors with matching indices (hadamard products)
+// ///
+// ///     Such simpifications may be required in the general case for the proper
+// ///     functioning of the core optimization, but may be skipped if the input
+// ///     indices are already in a simplified form.
+// /// use_ssa : bool, optional
+// ///     Whether to return the contraction path in 'single static assignment'
+// ///     (SSA) format (i.e. as if each intermediate is appended to the list of
+// ///     inputs, without removals). This can be quicker and easier to work with
+// ///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+// ///
+// /// Returns
+// /// -------
+// /// path : list[list[int]]
+// ///     The contraction path, given as a sequence of pairs of node indices. It
+// ///     may also have single term contractions if `simplify=True`.
+// fn optimize_greedy(
+//     py: Python,
+//     inputs: Vec<Vec<char>>,
+//     output: Vec<char>,
+//     size_dict: Dict<char, f32>,
+//     costmod: Option<f32>,
+//     temperature: Option<f32>,
+//     max_neighbors: Option<usize>,
+//     seed: Option<u64>,
+//     simplify: Option<bool>,
+//     use_ssa: Option<bool>,
+// ) -> SSAPath {
+//     py.detach(|| {
+//         optimize_greedy_rust(
+//             inputs,
+//             output,
+//             size_dict,
+//             costmod,
+//             temperature,
+//             max_neighbors,
+//             seed,
+//             simplify.unwrap_or(true),
+//             use_ssa.unwrap_or(false),
+//         )
+//     })
+// }
 
-#[pyfunction]
-#[pyo3(signature = (inputs, output, size_dict, ntrials, costmod=None, temperature=None, max_neighbors=None, seed=None, simplify=None, use_ssa=None))]
-/// Perform a batch of random greedy optimizations, simulteneously tracking
-/// the best contraction path in terms of flops, so as to avoid constructing a
-/// separate contraction tree.
-///
-/// Parameters
-/// ----------
-/// inputs : tuple[tuple[str]]
-///     The indices of each input tensor.
-/// output : tuple[str]
-///     The indices of the output tensor.
-/// size_dict : dict[str, int]
-///     A dictionary mapping indices to their dimension.
-/// ntrials : int, optional
-///     The number of random greedy trials to perform. The default is 1.
-/// costmod : (float, float), optional
-///     When assessing local greedy scores how much to weight the size of the
-///     tensors removed compared to the size of the tensor added::
-///
-///         score = size_ab / costmod - (size_a + size_b) * costmod
-///
-///     It is sampled uniformly from the given range.
-/// temperature : (float, float), optional
-///     When asessing local greedy scores, how much to randomly perturb the
-///     score. This is implemented as::
-///
-///         score -> sign(score) * log(|score|) - temperature * gumbel()
-///
-///     which implements boltzmann sampling. It is sampled log-uniformly from
-///     the given range.
-/// max_neighbors : int, optional
-///    If non-zero, skip any index that connects to more than this many
-///    nodes. This is useful to avoid combinatorial explosions when
-///    dealing with essentially batch indices. Default: 16.
-/// seed : int, optional
-///     The seed for the random number generator.
-/// simplify : bool, optional
-///     Whether to perform simplifications before optimizing. These are:
-///
-///     - ignore any indices that appear in all terms
-///     - combine any repeated indices within a single term
-///     - reduce any non-output indices that only appear on a single term
-///     - combine any scalar terms
-///     - combine any tensors with matching indices (hadamard products)
-///
-///     Such simpifications may be required in the general case for the proper
-///     functioning of the core optimization, but may be skipped if the input
-///     indices are already in a simplified form.
-/// use_ssa : bool, optional
-///     Whether to return the contraction path in 'single static assignment'
-///     (SSA) format (i.e. as if each intermediate is appended to the list of
-///     inputs, without removals). This can be quicker and easier to work with
-///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
-///
-/// Returns
-/// -------
-/// path : list[list[int]]
-///     The best contraction path, given as a sequence of pairs of node
-///     indices.
-/// flops : float
-///     The flops (/ contraction cost / number of multiplications), of the best
-///     contraction path, given log10.
-fn optimize_random_greedy_track_flops(
-    py: Python,
-    inputs: Vec<Vec<char>>,
-    output: Vec<char>,
-    size_dict: Dict<char, f32>,
-    ntrials: usize,
-    costmod: Option<(f32, f32)>,
-    temperature: Option<(f32, f32)>,
-    max_neighbors: Option<usize>,
-    seed: Option<u64>,
-    simplify: Option<bool>,
-    use_ssa: Option<bool>,
-) -> (SSAPath, Score) {
-    py.detach(|| {
-        optimize_random_greedy_rust(
-            inputs,
-            output,
-            size_dict,
-            ntrials,
-            costmod,
-            temperature,
-            max_neighbors,
-            seed,
-            simplify.unwrap_or(true),
-            use_ssa.unwrap_or(false),
-        )
-    })
-}
+// #[pyfunction]
+// #[pyo3(signature = (inputs, output, size_dict, ntrials, costmod=None, temperature=None, max_neighbors=None, seed=None, simplify=None, use_ssa=None))]
+// /// Perform a batch of random greedy optimizations, simulteneously tracking
+// /// the best contraction path in terms of flops, so as to avoid constructing a
+// /// separate contraction tree.
+// ///
+// /// Parameters
+// /// ----------
+// /// inputs : tuple[tuple[str]]
+// ///     The indices of each input tensor.
+// /// output : tuple[str]
+// ///     The indices of the output tensor.
+// /// size_dict : dict[str, int]
+// ///     A dictionary mapping indices to their dimension.
+// /// ntrials : int, optional
+// ///     The number of random greedy trials to perform. The default is 1.
+// /// costmod : (float, float), optional
+// ///     When assessing local greedy scores how much to weight the size of the
+// ///     tensors removed compared to the size of the tensor added::
+// ///
+// ///         score = size_ab / costmod - (size_a + size_b) * costmod
+// ///
+// ///     It is sampled uniformly from the given range.
+// /// temperature : (float, float), optional
+// ///     When asessing local greedy scores, how much to randomly perturb the
+// ///     score. This is implemented as::
+// ///
+// ///         score -> sign(score) * log(|score|) - temperature * gumbel()
+// ///
+// ///     which implements boltzmann sampling. It is sampled log-uniformly from
+// ///     the given range.
+// /// max_neighbors : int, optional
+// ///    If non-zero, skip any index that connects to more than this many
+// ///    nodes. This is useful to avoid combinatorial explosions when
+// ///    dealing with essentially batch indices. Default: 16.
+// /// seed : int, optional
+// ///     The seed for the random number generator.
+// /// simplify : bool, optional
+// ///     Whether to perform simplifications before optimizing. These are:
+// ///
+// ///     - ignore any indices that appear in all terms
+// ///     - combine any repeated indices within a single term
+// ///     - reduce any non-output indices that only appear on a single term
+// ///     - combine any scalar terms
+// ///     - combine any tensors with matching indices (hadamard products)
+// ///
+// ///     Such simpifications may be required in the general case for the proper
+// ///     functioning of the core optimization, but may be skipped if the input
+// ///     indices are already in a simplified form.
+// /// use_ssa : bool, optional
+// ///     Whether to return the contraction path in 'single static assignment'
+// ///     (SSA) format (i.e. as if each intermediate is appended to the list of
+// ///     inputs, without removals). This can be quicker and easier to work with
+// ///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+// ///
+// /// Returns
+// /// -------
+// /// path : list[list[int]]
+// ///     The best contraction path, given as a sequence of pairs of node
+// ///     indices.
+// /// flops : float
+// ///     The flops (/ contraction cost / number of multiplications), of the best
+// ///     contraction path, given log10.
+// fn optimize_random_greedy_track_flops(
+//     py: Python,
+//     inputs: Vec<Vec<char>>,
+//     output: Vec<char>,
+//     size_dict: Dict<char, f32>,
+//     ntrials: usize,
+//     costmod: Option<(f32, f32)>,
+//     temperature: Option<(f32, f32)>,
+//     max_neighbors: Option<usize>,
+//     seed: Option<u64>,
+//     simplify: Option<bool>,
+//     use_ssa: Option<bool>,
+// ) -> (SSAPath, Score) {
+//     py.detach(|| {
+//         optimize_random_greedy_rust(
+//             inputs,
+//             output,
+//             size_dict,
+//             ntrials,
+//             costmod,
+//             temperature,
+//             max_neighbors,
+//             seed,
+//             simplify.unwrap_or(true),
+//             use_ssa.unwrap_or(false),
+//         )
+//     })
+// }
 
-#[pyfunction]
-#[pyo3(signature = (inputs, output, size_dict, minimize=None, cost_cap=None, search_outer=None, simplify=None, use_ssa=None))]
-/// Find an optimal contraction ordering.
-///
-/// Parameters
-/// ----------
-/// inputs : Sequence[Sequence[str]]
-///     The indices of each input tensor.
-/// output : Sequence[str]
-///     The indices of the output tensor.
-/// size_dict : dict[str, int]
-///     The size of each index.
-/// minimize : str, optional
-///     The cost function to minimize. The options are:
-///
-///     - "flops": minimize with respect to total operation count only
-///       (also known as contraction cost)
-///     - "size": minimize with respect to maximum intermediate size only
-///       (also known as contraction width)
-///     - 'max': minimize the single most expensive contraction, i.e. the
-///       asymptotic (in index size) scaling of the contraction
-///     - 'write' : minimize the sum of all tensor sizes, i.e. memory written
-///     - 'combo' or 'combo={factor}` : minimize the sum of
-///       FLOPS + factor * WRITE, with a default factor of 64.
-///     - 'limit' or 'limit={factor}` : minimize the sum of
-///       MAX(FLOPS, alpha * WRITE) for each individual contraction, with a
-///       default factor of 64.
-///
-///     'combo' is generally a good default in term of practical hardware
-///     performance, where both memory bandwidth and compute are limited.
-/// cost_cap : float, optional
-///     The maximum cost of a contraction to initially consider. This acts like
-///     a sieve and is doubled at each iteration until the optimal path can
-///     be found, but supplying an accurate guess can speed up the algorithm.
-/// search_outer : bool, optional
-///     If True, consider outer product contractions. This is much slower but
-///     theoretically might be required to find the true optimal 'flops'
-///     ordering. In practical settings (i.e. with minimize='combo'), outer
-///     products should not be required.
-/// simplify : bool, optional
-///     Whether to perform simplifications before optimizing. These are:
-///
-///     - ignore any indices that appear in all terms
-///     - combine any repeated indices within a single term
-///     - reduce any non-output indices that only appear on a single term
-///     - combine any scalar terms
-///     - combine any tensors with matching indices (hadamard products)
-///
-///     Such simpifications may be required in the general case for the proper
-///     functioning of the core optimization, but may be skipped if the input
-///     indices are already in a simplified form.
-/// use_ssa : bool, optional
-///     Whether to return the contraction path in 'single static assignment'
-///     (SSA) format (i.e. as if each intermediate is appended to the list of
-///     inputs, without removals). This can be quicker and easier to work with
-///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
-///
-/// Returns
-/// -------
-/// path : list[list[int]]
-///     The contraction path, given as a sequence of pairs of node indices. It
-///     may also have single term contractions if `simplify=True`.
-fn optimize_optimal(
-    py: Python,
-    inputs: Vec<Vec<char>>,
-    output: Vec<char>,
-    size_dict: Dict<char, f32>,
-    minimize: Option<String>,
-    cost_cap: Option<Score>,
-    search_outer: Option<bool>,
-    simplify: Option<bool>,
-    use_ssa: Option<bool>,
-) -> SSAPath {
-    py.detach(|| {
-        optimize_optimal_rust(
-            inputs,
-            output,
-            size_dict,
-            minimize,
-            cost_cap,
-            search_outer,
-            simplify.unwrap_or(true),
-            use_ssa.unwrap_or(false),
-        )
-    })
-}
+// #[pyfunction]
+// #[pyo3(signature = (inputs, output, size_dict, minimize=None, cost_cap=None, search_outer=None, simplify=None, use_ssa=None))]
+// /// Find an optimal contraction ordering.
+// ///
+// /// Parameters
+// /// ----------
+// /// inputs : Sequence[Sequence[str]]
+// ///     The indices of each input tensor.
+// /// output : Sequence[str]
+// ///     The indices of the output tensor.
+// /// size_dict : dict[str, int]
+// ///     The size of each index.
+// /// minimize : str, optional
+// ///     The cost function to minimize. The options are:
+// ///
+// ///     - "flops": minimize with respect to total operation count only
+// ///       (also known as contraction cost)
+// ///     - "size": minimize with respect to maximum intermediate size only
+// ///       (also known as contraction width)
+// ///     - 'max': minimize the single most expensive contraction, i.e. the
+// ///       asymptotic (in index size) scaling of the contraction
+// ///     - 'write' : minimize the sum of all tensor sizes, i.e. memory written
+// ///     - 'combo' or 'combo={factor}` : minimize the sum of
+// ///       FLOPS + factor * WRITE, with a default factor of 64.
+// ///     - 'limit' or 'limit={factor}` : minimize the sum of
+// ///       MAX(FLOPS, alpha * WRITE) for each individual contraction, with a
+// ///       default factor of 64.
+// ///
+// ///     'combo' is generally a good default in term of practical hardware
+// ///     performance, where both memory bandwidth and compute are limited.
+// /// cost_cap : float, optional
+// ///     The maximum cost of a contraction to initially consider. This acts like
+// ///     a sieve and is doubled at each iteration until the optimal path can
+// ///     be found, but supplying an accurate guess can speed up the algorithm.
+// /// search_outer : bool, optional
+// ///     If True, consider outer product contractions. This is much slower but
+// ///     theoretically might be required to find the true optimal 'flops'
+// ///     ordering. In practical settings (i.e. with minimize='combo'), outer
+// ///     products should not be required.
+// /// simplify : bool, optional
+// ///     Whether to perform simplifications before optimizing. These are:
+// ///
+// ///     - ignore any indices that appear in all terms
+// ///     - combine any repeated indices within a single term
+// ///     - reduce any non-output indices that only appear on a single term
+// ///     - combine any scalar terms
+// ///     - combine any tensors with matching indices (hadamard products)
+// ///
+// ///     Such simpifications may be required in the general case for the proper
+// ///     functioning of the core optimization, but may be skipped if the input
+// ///     indices are already in a simplified form.
+// /// use_ssa : bool, optional
+// ///     Whether to return the contraction path in 'single static assignment'
+// ///     (SSA) format (i.e. as if each intermediate is appended to the list of
+// ///     inputs, without removals). This can be quicker and easier to work with
+// ///     than the 'linear recycled' format that `numpy` and `opt_einsum` use.
+// ///
+// /// Returns
+// /// -------
+// /// path : list[list[int]]
+// ///     The contraction path, given as a sequence of pairs of node indices. It
+// ///     may also have single term contractions if `simplify=True`.
+// fn optimize_optimal(
+//     py: Python,
+//     inputs: Vec<Vec<char>>,
+//     output: Vec<char>,
+//     size_dict: Dict<char, f32>,
+//     minimize: Option<String>,
+//     cost_cap: Option<Score>,
+//     search_outer: Option<bool>,
+//     simplify: Option<bool>,
+//     use_ssa: Option<bool>,
+// ) -> SSAPath {
+//     py.detach(|| {
+//         optimize_optimal_rust(
+//             inputs,
+//             output,
+//             size_dict,
+//             minimize,
+//             cost_cap,
+//             search_outer,
+//             simplify.unwrap_or(true),
+//             use_ssa.unwrap_or(false),
+//         )
+//     })
+// }
 
-/// A Python module implemented in Rust.
-#[pymodule]
-fn cotengrust(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(ssa_to_linear, m)?)?;
-    m.add_function(wrap_pyfunction!(find_subgraphs, m)?)?;
-    m.add_function(wrap_pyfunction!(optimize_simplify, m)?)?;
-    m.add_function(wrap_pyfunction!(optimize_greedy, m)?)?;
-    m.add_function(wrap_pyfunction!(optimize_random_greedy_track_flops, m)?)?;
-    m.add_function(wrap_pyfunction!(optimize_optimal, m)?)?;
-    Ok(())
-}
+// /// A Python module implemented in Rust.
+// #[pymodule]
+// fn cotengrust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+//     m.add_function(wrap_pyfunction!(ssa_to_linear, m)?)?;
+//     m.add_function(wrap_pyfunction!(find_subgraphs, m)?)?;
+//     m.add_function(wrap_pyfunction!(optimize_simplify, m)?)?;
+//     m.add_function(wrap_pyfunction!(optimize_greedy, m)?)?;
+//     m.add_function(wrap_pyfunction!(optimize_random_greedy_track_flops, m)?)?;
+//     m.add_function(wrap_pyfunction!(optimize_optimal, m)?)?;
+//     Ok(())
+// }
