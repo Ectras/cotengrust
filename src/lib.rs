@@ -1184,7 +1184,7 @@ pub fn optimize_greedy_rust(
     if use_ssa {
         ssa_path
     } else {
-        ssa_to_linear(ssa_path, Some(n))
+        ssa_to_linear_rust(ssa_path, Some(n))
     }
 }
 
@@ -1340,7 +1340,7 @@ pub fn optimize_random_greedy_rust(
     if use_ssa {
         (ssa_path, flops)
     } else {
-        (ssa_to_linear(ssa_path, Some(n)), flops)
+        (ssa_to_linear_rust(ssa_path, Some(n)), flops)
     }
 }
 
@@ -1455,15 +1455,11 @@ pub fn optimize_optimal_rust(
     if use_ssa {
         ssa_path
     } else {
-        ssa_to_linear(ssa_path, Some(n))
+        ssa_to_linear_rust(ssa_path, Some(n))
     }
 }
 
-// --------------------------- PYTHON FUNCTIONS ---------------------------- //
-
-#[pyfunction]
-#[pyo3(signature = (ssa_path, n=None))]
-fn ssa_to_linear(ssa_path: SSAPath, n: Option<usize>) -> SSAPath {
+pub fn ssa_to_linear_rust(ssa_path: SSAPath, n: Option<usize>) -> SSAPath {
     let n = match n {
         Some(n) => n,
         None => ssa_path.iter().map(|v| v.len()).sum::<usize>() + ssa_path.len() + 1,
@@ -1487,6 +1483,14 @@ fn ssa_to_linear(ssa_path: SSAPath, n: Option<usize>) -> SSAPath {
         ssa += 1;
     }
     path
+}
+
+// --------------------------- PYTHON FUNCTIONS ---------------------------- //
+
+#[pyfunction]
+#[pyo3(signature = (ssa_path, n=None))]
+fn ssa_to_linear(ssa_path: SSAPath, n: Option<usize>) -> SSAPath {
+    ssa_to_linear_rust(ssa_path, n)
 }
 
 #[pyfunction]
