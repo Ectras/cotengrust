@@ -9,10 +9,18 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"  # Location of your workflows, typically the root folder
     schedule:
-      interval: "daily"  # Frequency of update checks (daily, weekly, or monthly)
+      interval: "monthly"  # Frequency of update checks (daily, weekly, or monthly)
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   # Enable Dependabot for Rust dependencies
   - package-ecosystem: "cargo"
     directory: "/"  # Location of your Cargo.toml file, typically the root folder
     schedule:
-      interval: "weekly"  # Frequency of update checks (daily, weekly, or monthly)
+      interval: "monthly"  # Frequency of update checks (daily, weekly, or monthly)
+    cooldown:
+      default-days: 7
