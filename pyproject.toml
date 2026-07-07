@@ -21,6 +21,9 @@ build-backend = "maturin"
 [tool.maturin]
 features = ["pyo3/extension-module"]
 
+[tool.maturin.generate-ci.github]
+pytest = true
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
