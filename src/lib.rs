@@ -1,8 +1,7 @@
 use bit_set::BitSet;
+use fastrand::Rng;
 use num_traits::{AsPrimitive, Bounded, PrimInt};
 use ordered_float::OrderedFloat;
-use rand::Rng;
-use rand::SeedableRng;
 use rustc_hash::FxHashMap;
 use std::collections::{BTreeSet, BinaryHeap, HashSet};
 use std::f32;
@@ -10,7 +9,7 @@ use std::hash::Hash;
 
 use FxHashMap as Dict;
 
-// n.b. this constrains the maximum number index appearances < 256
+// n.b. this constrains the maximum number index appearances < 65536
 type Count = u16;
 type Score = f32;
 type GreedyScore = OrderedFloat<Score>;
@@ -189,13 +188,18 @@ impl<Ix: IndexType, Node: NodeType> ContractionProcessor<Ix, Node> {
         for (i, term) in inputs.into_iter().enumerate() {
             let mut legs = Vec::with_capacity(term.len());
             for ind in term {
+                let d = size_dict[&ind];
+                if d == 1.0 {
+                    // size-1 index contributes nothing to cost -> ignore it
+                    continue;
+                }
                 match indmap.get(&ind) {
                     None => {
                         // index not parsed yet
                         indmap.insert(ind, c);
                         edges.insert(c, std::iter::once(Node::from(i).unwrap()).collect());
                         appearances.push(1);
-                        sizes.push(f32::ln(size_dict[&ind] as f32));
+                        sizes.push(d.ln());
                         legs.push((c, 1));
                         c = c + Ix::one();
                     }
@@ -211,7 +215,10 @@ impl<Ix: IndexType, Node: NodeType> ContractionProcessor<Ix, Node> {
             nodes.insert(Node::from(i).unwrap(), legs);
         }
         output.into_iter().for_each(|ind| {
-            appearances[indmap[&ind].as_()] += 1;
+            // size-1 indices were never registered -> skip them here too
+            if let Some(&ix) = indmap.get(&ind) {
+                appearances[ix.as_()] += 1;
+            }
         });
 
         let ssa = Node::from(nodes.len()).unwrap();
@@ -465,8 +472,8 @@ impl<Ix: IndexType, Node: NodeType> ContractionProcessor<Ix, Node> {
 
         let mut rng = if coeff_t != 0.0 {
             Some(match seed {
-                Some(seed) => rand::rngs::StdRng::seed_from_u64(seed),
-                None => rand::rngs::StdRng::from_os_rng(),
+                Some(seed) => Rng::with_seed(seed),
+                None => Rng::new(),
             })
         } else {
             // zero temp - no need for rng
@@ -475,7 +482,7 @@ impl<Ix: IndexType, Node: NodeType> ContractionProcessor<Ix, Node> {
 
         let mut local_score = |sa: Score, sb: Score, sab: Score| -> Score {
             let gumbel = if let Some(rng) = &mut rng {
-                coeff_t * -f32::ln(-f32::ln(rng.random()))
+                coeff_t * -f32::ln(-f32::ln(rng.f32()))
             } else {
                 0.0 as f32
             };
@@ -990,7 +997,9 @@ fn run_greedy<Ix: IndexType, Node: NodeType>(
     if simplify {
         cp.simplify();
     }
-    cp.optimize_greedy(costmod, temperature, max_neighbors, seed);
+    if cp.nodes.len() > 2 {
+        cp.optimize_greedy(costmod, temperature, max_neighbors, seed);
+    }
     cp.optimize_remaining_by_size();
     cp.ssa_path
 }
@@ -1009,7 +1018,9 @@ fn run_optimal<Ix: IndexType, Node: NodeType>(
     if simplify {
         cp.simplify();
     }
-    cp.optimize_optimal(minimize, cost_cap, search_outer);
+    if cp.nodes.len() > 2 {
+        cp.optimize_optimal(minimize, cost_cap, search_outer);
+    }
     cp.optimize_remaining_by_size();
     cp.ssa_path
 }
@@ -1029,12 +1040,18 @@ fn run_random_greedy_optimization<Ix: IndexType, Node: NodeType>(
     log_temp_diff: f32,
     is_const_temp: bool,
     max_neighbors: Option<usize>,
-    rng: &mut rand::rngs::StdRng,
+    rng: &mut Rng,
 ) -> (SSAPath, Score) {
     let mut cp0: ContractionProcessor<Ix, Node> =
         ContractionProcessor::new(inputs, output, size_dict, true);
     if simplify {
         cp0.simplify();
+    }
+
+    if cp0.nodes.len() <= 2 {
+        cp0.optimize_remaining_by_size();
+        let flops = cp0.flops * f32::consts::LOG10_E;
+        return (cp0.ssa_path, flops);
     }
 
     let mut best_path: Option<SSAPath> = None;
@@ -1046,13 +1063,13 @@ fn run_random_greedy_optimization<Ix: IndexType, Node: NodeType>(
         let costmod = if is_const_costmod {
             costmod_min
         } else {
-            costmod_min + rng.random::<f32>() * costmod_diff
+            costmod_min + rng.f32() * costmod_diff
         };
 
         let temperature = if is_const_temp {
             temp_min
         } else {
-            f32::exp(log_temp_min + rng.random::<f32>() * log_temp_diff)
+            f32::exp(log_temp_min + rng.f32() * log_temp_diff)
         };
 
         let success =
@@ -1140,6 +1157,9 @@ pub fn optimize_greedy_rust(
     use_ssa: bool,
 ) -> SSAPath {
     let n = inputs.len();
+    if n <= 1 {
+        return vec![(0..n as u32).collect()];
+    }
     let num_indices = size_dict.len();
     let max_nodes = 2 * n;
 
@@ -1260,6 +1280,10 @@ pub fn optimize_random_greedy_rust(
     simplify: bool,
     use_ssa: bool,
 ) -> (SSAPath, Score) {
+    let n = inputs.len();
+    if n <= 1 {
+        return (vec![(0..n as u32).collect()], 0.0);
+    }
     let (costmod_min, costmod_max) = costmod.unwrap_or((0.1, 4.0));
     let costmod_diff = (costmod_max - costmod_min).abs();
     let is_const_costmod = costmod_diff < Score::EPSILON;
@@ -1271,10 +1295,10 @@ pub fn optimize_random_greedy_rust(
     let is_const_temp = log_temp_diff < Score::EPSILON;
 
     let mut rng = match seed {
-        Some(seed) => rand::rngs::StdRng::seed_from_u64(seed),
-        None => rand::rngs::StdRng::from_os_rng(),
+        Some(seed) => Rng::with_seed(seed),
+        None => Rng::new(),
     };
-    let seeds = (0..ntrials).map(|_| rng.random()).collect::<Vec<u64>>();
+    let seeds = (0..ntrials).map(|_| rng.u64(..)).collect::<Vec<u64>>();
 
     let n: usize = inputs.len();
     let num_indices = size_dict.len();
@@ -1414,6 +1438,9 @@ pub fn optimize_optimal_rust(
     use_ssa: bool,
 ) -> SSAPath {
     let n = inputs.len();
+    if n <= 1 {
+        return vec![(0..n as u32).collect()];
+    }
     let num_indices = size_dict.len();
     let max_nodes = 2 * n;
 

@@ -16,16 +16,89 @@ requires_cotengra = pytest.mark.skipif(ctg_missing, reason="requires cotengra")
 
 @pytest.mark.parametrize("which", ["greedy", "optimal"])
 def test_basic_call(which):
-    inputs = [('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'a')]
-    output = ('b', 'd')
-    size_dict = {'a': 2, 'b': 3, 'c': 4, 'd': 5}
+    inputs = [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]
+    output = ("b", "d")
+    size_dict = {"a": 2, "b": 3, "c": 4, "d": 5}
     path = {
         "greedy": ctgr.optimize_greedy,
         "optimal": ctgr.optimize_optimal,
-    }[
-        which
-    ](inputs, output, size_dict)
+    }[which](inputs, output, size_dict)
     assert all(len(con) <= 2 for con in path)
+
+
+@pytest.mark.parametrize(
+    "which",
+    ["simplify", "greedy", "optimal", "random_greedy"],
+)
+def test_single_input(which):
+    inputs = [("a", "b")]
+    output = ("a", "b")
+    size_dict = {"a": 2, "b": 3}
+    if which == "random_greedy":
+        path, flops = ctgr.optimize_random_greedy_track_flops(
+            inputs, output, size_dict, ntrials=1
+        )
+        assert flops == 0.0
+        assert path == [[0]]
+    elif which == "simplify":
+        path = ctgr.optimize_simplify(inputs, output, size_dict)
+        assert path == []
+    else:
+        path = {
+            "greedy": ctgr.optimize_greedy,
+            "optimal": ctgr.optimize_optimal,
+        }[which](inputs, output, size_dict)
+        assert path == [[0]]
+
+
+@pytest.mark.parametrize("which", ["greedy", "optimal", "random_greedy"])
+def test_two_inputs(which):
+    inputs = [("a", "b"), ("b", "c")]
+    output = ("a", "c")
+    size_dict = {"a": 2, "b": 3, "c": 4}
+    if which == "random_greedy":
+        path, flops = ctgr.optimize_random_greedy_track_flops(
+            inputs, output, size_dict, ntrials=1
+        )
+    else:
+        path = {
+            "greedy": ctgr.optimize_greedy,
+            "optimal": ctgr.optimize_optimal,
+        }[which](inputs, output, size_dict)
+    assert path == [[0, 1]]
+
+
+@pytest.mark.parametrize(
+    "which",
+    ["simplify", "greedy", "optimal", "random_greedy"],
+)
+def test_two_inputs_with_simplification(which):
+    """Two inputs where each term has indices needing simplification first.
+
+    For 'ab,cd->', both terms have non-output, single-term indices that
+    should be reduced before the final contraction, producing a path like
+    [(0,), (1,), (0, 1)] rather than just [(0, 1)].
+    """
+    inputs = [("a", "b"), ("c", "d")]
+    output = ()
+    size_dict = {"a": 2, "b": 3, "c": 4, "d": 5}
+    if which == "random_greedy":
+        path, _ = ctgr.optimize_random_greedy_track_flops(
+            inputs, output, size_dict, ntrials=1
+        )
+    else:
+        path = {
+            "simplify": ctgr.optimize_simplify,
+            "greedy": ctgr.optimize_greedy,
+            "optimal": ctgr.optimize_optimal,
+        }[which](inputs, output, size_dict)
+    # simplification should reduce each term independently first,
+    # producing two single-term contractions before the final pair
+    assert len(path) == 3
+    singles = [con for con in path if len(con) == 1]
+    pairs = [con for con in path if len(con) == 2]
+    assert len(singles) == 2
+    assert len(pairs) == 1
 
 
 def find_output_str(lhs):
@@ -157,9 +230,7 @@ def test_manual_cases(eq, which):
     path = {
         "greedy": ctgr.optimize_greedy,
         "optimal": ctgr.optimize_optimal,
-    }[
-        which
-    ](inputs, output, size_dict)
+    }[which](inputs, output, size_dict)
     assert all(len(con) <= 2 for con in path)
     tree = ctg.ContractionTree.from_path(
         inputs, output, size_dict, path=path, check=True
@@ -184,9 +255,7 @@ def test_basic_rand(seed, which):
     path = {
         "greedy": ctgr.optimize_greedy,
         "optimal": ctgr.optimize_optimal,
-    }[
-        which
-    ](inputs, output, size_dict)
+    }[which](inputs, output, size_dict)
     assert all(len(con) <= 2 for con in path)
     tree = ctg.ContractionTree.from_path(
         inputs, output, size_dict, path=path, check=True
@@ -196,22 +265,16 @@ def test_basic_rand(seed, which):
 
 @requires_cotengra
 def test_optimal_lattice_eq():
-    inputs, output, _, size_dict = ctg.utils.lattice_equation(
-        [4, 5], d_max=2, seed=42
-    )
+    inputs, output, _, size_dict = ctg.utils.lattice_equation([4, 5], d_max=2, seed=42)
 
-    path = ctgr.optimize_optimal(inputs, output, size_dict, minimize='flops')
-    tree = ctg.ContractionTree.from_path(
-        inputs, output, size_dict, path=path
-    )
+    path = ctgr.optimize_optimal(inputs, output, size_dict, minimize="flops")
+    tree = ctg.ContractionTree.from_path(inputs, output, size_dict, path=path)
     assert tree.is_complete()
     assert tree.contraction_cost() == 964
 
-    path = ctgr.optimize_optimal(inputs, output, size_dict, minimize='size')
+    path = ctgr.optimize_optimal(inputs, output, size_dict, minimize="size")
     assert all(len(con) <= 2 for con in path)
-    tree = ctg.ContractionTree.from_path(
-        inputs, output, size_dict, path=path
-    )
+    tree = ctg.ContractionTree.from_path(inputs, output, size_dict, path=path)
     assert tree.contraction_width() == pytest.approx(5)
 
 
@@ -228,8 +291,82 @@ def test_optimize_random_greedy_log_flops():
         inputs, output, size_dict, ntrials=4, seed=42
     )
     assert cost1 == cost2
-    tree = ctg.ContractionTree.from_path(
-        inputs, output, size_dict, path=path
-    )
+    tree = ctg.ContractionTree.from_path(inputs, output, size_dict, path=path)
     assert tree.is_complete()
     assert tree.contraction_cost(log=10) == pytest.approx(cost1)
+
+
+@pytest.mark.parametrize("which", ["greedy", "optimal", "random_greedy"])
+def test_size_one_shared_edge(which):
+    # 'k' is a size-1 bond shared between the two tensors -> contributes nothing
+    inputs = [("a", "k"), ("k", "b")]
+    output = ("a", "b")
+    size_dict = {"a": 2, "k": 1, "b": 2}
+    if which == "random_greedy":
+        path, _ = ctgr.optimize_random_greedy_track_flops(
+            inputs, output, size_dict, ntrials=1
+        )
+    else:
+        path = {
+            "greedy": ctgr.optimize_greedy,
+            "optimal": ctgr.optimize_optimal,
+        }[which](inputs, output, size_dict)
+    assert path == [[0, 1]]
+
+
+@pytest.mark.parametrize("simplify", [True, False])
+@pytest.mark.parametrize("which", ["greedy", "optimal", "random_greedy"])
+def test_size_one_all_scalar_term(simplify, which):
+    # the first term is entirely size-1 -> becomes a scalar once ignored
+    inputs = [("x",), ("a", "b"), ("b", "c")]
+    output = ("a", "c")
+    size_dict = {"x": 1, "a": 2, "b": 3, "c": 2}
+    if which == "random_greedy":
+        path, _ = ctgr.optimize_random_greedy_track_flops(
+            inputs, output, size_dict, ntrials=1, simplify=simplify
+        )
+    else:
+        path = {
+            "greedy": ctgr.optimize_greedy,
+            "optimal": ctgr.optimize_optimal,
+        }[which](inputs, output, size_dict, simplify=simplify)
+    assert all(len(con) <= 2 for con in path)
+
+
+@requires_cotengra
+@pytest.mark.parametrize("which", ["greedy", "optimal"])
+def test_size_one_indices_cost_neutral(which):
+    # build a random equation, then splice in extra size-1 indices: the optimal
+    # / greedy cost must match the equation without them, since size-1 indices
+    # contribute nothing to contraction cost.
+    inputs, output, _, size_dict = ctg.utils.rand_equation(
+        n=10, reg=4, n_out=2, d_min=2, d_max=3, seed=0
+    )
+    opt = {"greedy": ctgr.optimize_greedy, "optimal": ctgr.optimize_optimal}[which]
+
+    path_ref = opt(inputs, output, size_dict)
+    tree_ref = ctg.ContractionTree.from_path(
+        inputs, output, size_dict, path=path_ref, check=True
+    )
+    assert tree_ref.is_complete()
+
+    # add a fresh size-1 index onto every term (and one onto the output);
+    # indices must be single chars, so draw fresh ones not already used
+    used = set(size_dict)
+    pool = (c for c in map(chr, range(0x4000, 0x5000)) if c not in used)
+    size_dict_s = dict(size_dict)
+    inputs_s = []
+    extra = []
+    for term in inputs:
+        ix = next(pool)
+        extra.append(ix)
+        size_dict_s[ix] = 1
+        inputs_s.append(tuple(term) + (ix,))
+    output_s = tuple(output) + (extra[0],)
+
+    path_s = opt(inputs_s, output_s, size_dict_s)
+    tree_s = ctg.ContractionTree.from_path(
+        inputs_s, output_s, size_dict_s, path=path_s, check=True
+    )
+    assert tree_s.is_complete()
+    assert tree_s.contraction_cost() == tree_ref.contraction_cost()

@@ -5,14 +5,23 @@
 
 version: 2
 updates:
-  # Enable Dependabot for GitHub Actions
-  - package-ecosystem: "github-actions"
-    directory: "/"  # Location of your workflows, typically the root folder
-    schedule:
-      interval: "daily"  # Frequency of update checks (daily, weekly, or monthly)
+  # # delegate to `maturin generate-ci github > .github/workflows/CI.yml`
+  # # Enable Dependabot for GitHub Actions
+  # - package-ecosystem: "github-actions"
+  #   directory: "/"  # Location of your workflows, typically the root folder
+  #   schedule:
+  #     interval: "monthly"  # Frequency of update checks (daily, weekly, or monthly)
+  #   cooldown:
+  #     default-days: 7
+  #   groups:
+  #     github-actions:
+  #       patterns:
+  #         - "*"
 
   # Enable Dependabot for Rust dependencies
   - package-ecosystem: "cargo"
     directory: "/"  # Location of your Cargo.toml file, typically the root folder
     schedule:
-      interval: "weekly"  # Frequency of update checks (daily, weekly, or monthly)
+      interval: "monthly"  # Frequency of update checks (daily, weekly, or monthly)
+    cooldown:
+      default-days: 7

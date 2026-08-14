@@ -1,9 +1,8 @@
 [project]
 name = "cotengrust"
-version = "0.2.0"
 description = "Fast contraction ordering primitives for tensor networks."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -13,6 +12,7 @@ license = { file = "LICENSE" }
 authors = [
     {name = "Johnnie Gray", email = "johnniemcgray@gmail.com"}
 ]
+dynamic = ["version"]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -20,3 +20,27 @@ build-backend = "maturin"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
+
+[tool.maturin.generate-ci.github]
+pytest = true
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+[tool.pixi.pypi-dependencies]
+cotengrust = { path = ".", editable = true }
+
+[tool.pixi.feature.testing.dependencies]
+cotengra = "*"
+networkx = "*"
+pytest = "*"
+
+[tool.pixi.environments]
+test = { features = ["testing"] }
+
+[tool.pixi.tasks.pytest]
+default-environment = "test"
+cmd = "pytest"
+cwd = "."
+description = "Run pytest."
